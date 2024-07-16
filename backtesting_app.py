@@ -28,9 +28,13 @@ class SmaCrossWithRSI(Strategy):
         return rsi
 
     def next(self):
+        # Debug statement to check if `next` is being called
+        print(f"Date: {self.data.index[-1]}, Close: {self.data.Close[-1]}, SMA1: {self.sma1[-1]}, SMA2: {self.sma2[-1]}, RSI: {self.rsi[-1]}")
         if crossover(self.sma1, self.sma2) and self.rsi[-1] < 30:
+            print("Buy signal triggered")
             self.buy()
         elif crossover(self.sma2, self.sma1) or self.rsi[-1] > 70:
+            print("Sell signal triggered")
             self.sell()
 
 # Streamlit UI
@@ -44,6 +48,14 @@ end_date = st.sidebar.date_input('End Date', pd.to_datetime('today'))
 short_window = st.sidebar.slider('Short Window', min_value=1, max_value=100, value=10)
 long_window = st.sidebar.slider('Long Window', min_value=1, max_value=300, value=20)
 rsi_period = st.sidebar.slider('RSI Period', min_value=1, max_value=50, value=14)
+
+# Display input parameters to ensure they are updating
+st.write("Ticker:", ticker)
+st.write("Start Date:", start_date)
+st.write("End Date:", end_date)
+st.write("Short Window:", short_window)
+st.write("Long Window:", long_window)
+st.write("RSI Period:", rsi_period)
 
 # Function to download data
 def get_data(ticker, start, end):
@@ -88,7 +100,7 @@ def plot_backtest_results(output, data):
     buys = trades.loc[trades['Size'] > 0]
     sells = trades.loc[trades['Size'] < 0]
     fig.add_trace(go.Scatter(x=buys['EntryTime'], y=buys['EntryPrice'], mode='markers', marker=dict(symbol='triangle-up', color='green', size=10), name='Buy Signal'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=sells['ExitTime'], y=sells['ExitPrice'], mode='markers', marker=dict(symbol='triangle-down', color='red', size=10), name='Sell Signal'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=sells['EntryTime'], y=sells['EntryPrice'], mode='markers', marker=dict(symbol='triangle-down', color='red', size=10), name='Sell Signal'), row=1, col=1)
 
     # Plotting RSI
     fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], name='RSI', line=dict(color='orange')), row=2, col=1)
