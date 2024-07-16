@@ -35,7 +35,7 @@ long_window = st.sidebar.slider('Long Window', min_value=1, max_value=300, value
 
 # Function to download data
 def get_data(ticker, start, end):
-    data = yf.download(ticker, start=start, end=end)
+    data = yf.download(ticker, start=start, end=end, progress=False)
     return data
 
 # Get Data
