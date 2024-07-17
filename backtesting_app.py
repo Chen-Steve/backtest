@@ -2,7 +2,7 @@ import yfinance as yf
 import pandas as pd
 import streamlit as st
 from backtesting import Backtest, Strategy
-from backtesting.lib import crossover
+from backtesting.lib import crossover, SignalStrategy
 from backtesting.test import SMA
 import numpy as np
 import plotly.graph_objs as go
@@ -17,7 +17,7 @@ def BollingerBands(series, period, std_dev):
     return upper_band, sma, lower_band
 
 # Define a strategy with manually calculated RSI and Bollinger Bands indicators
-class EnhancedStrategy(Strategy):
+class OptimizableStrategy(SignalStrategy):
     n1 = 10
     n2 = 20
     rsi_period = 14
@@ -25,6 +25,7 @@ class EnhancedStrategy(Strategy):
     bb_std_dev = 2
 
     def init(self):
+        super().init()
         self.sma1 = self.I(SMA, self.data.Close, self.n1)
         self.sma2 = self.I(SMA, self.data.Close, self.n2)
         self.rsi = self.I(self.RSI, pd.Series(self.data.Close), self.rsi_period)
@@ -39,13 +40,10 @@ class EnhancedStrategy(Strategy):
         return rsi
 
     def next(self):
-        # Debug statement to check if `next` is being called
-        print(f"Date: {self.data.index[-1]}, Close: {self.data.Close[-1]}, SMA1: {self.sma1[-1]}, SMA2: {self.sma2[-1]}, RSI: {self.rsi[-1]}, BB Upper: {self.bb_upper[-1]}, BB Lower: {self.bb_lower[-1]}")
+        super().next()
         if crossover(self.sma1, self.sma2) and self.rsi[-1] < 30 and self.data.Close[-1] < self.bb_lower[-1]:
-            print("Buy signal triggered")
             self.buy()
         elif crossover(self.sma2, self.sma1) or self.rsi[-1] > 70 or self.data.Close[-1] > self.bb_upper[-1]:
-            print("Sell signal triggered")
             self.sell()
 
 # Streamlit UI
@@ -63,40 +61,56 @@ bb_period = st.sidebar.slider('Bollinger Bands Period', min_value=1, max_value=5
 bb_std_dev = st.sidebar.slider('Bollinger Bands Std Dev', min_value=1, max_value=5, value=2)
 
 # Display input parameters to ensure they are updating
-st.write("Ticker:", ticker)
-st.write("Start Date:", start_date)
-st.write("End Date:", end_date)
-st.write("Short Window:", short_window)
-st.write("Long Window:", long_window)
-st.write("RSI Period:", rsi_period)
-st.write("Bollinger Bands Period:", bb_period)
-st.write("Bollinger Bands Std Dev:", bb_std_dev)
+#st.write("Ticker:", ticker)
+#st.write("Start Date:", start_date)
+#st.write("End Date:", end_date)
+#st.write("Short Window:", short_window)
+#st.write("Long Window:", long_window)
+#st.write("RSI Period:", rsi_period)
+#st.write("Bollinger Bands Period:", bb_period)
+#st.write("Bollinger Bands Std Dev:", bb_std_dev)
 
 # Function to download data
 def get_data(ticker, start, end):
     data = yf.download(ticker, start=start, end=end, progress=False)
+    data.fillna(method='ffill', inplace=True)
+    data.fillna(method='bfill', inplace=True)
     return data
 
 # Get Data
 data = get_data(ticker, start_date, end_date)
 
 # Update Strategy parameters
-EnhancedStrategy.n1 = short_window
-EnhancedStrategy.n2 = long_window
-EnhancedStrategy.rsi_period = rsi_period
-EnhancedStrategy.bb_period = bb_period
-EnhancedStrategy.bb_std_dev = bb_std_dev
+OptimizableStrategy.n1 = short_window
+OptimizableStrategy.n2 = long_window
+OptimizableStrategy.rsi_period = rsi_period
+OptimizableStrategy.bb_period = bb_period
+OptimizableStrategy.bb_std_dev = bb_std_dev
 
-# Run Backtest
-bt = Backtest(data, EnhancedStrategy, cash=10000, commission=.002)
-output = bt.run()
+# Run Backtest with Optimization
+bt = Backtest(data, OptimizableStrategy, cash=10000, commission=.002)
+stats = bt.optimize(n1=range(5, 20, 1), n2=range(20, 50, 1), maximize='Equity Final [$]')
+
+# Compute the equity curve manually from the trades data
+def compute_equity_curve(output):
+    trades = output['_trades']
+    initial_cash = 10000
+    equity = initial_cash
+    equity_curve = []
+    for index, row in trades.iterrows():
+        if row['Size'] > 0:  # Buy
+            equity -= row['EntryPrice'] * row['Size']
+        else:  # Sell
+            equity += row['EntryPrice'] * abs(row['Size'])
+        equity_curve.append(equity)
+    return equity_curve
 
 # Plot results using Plotly
 def plot_backtest_results(output, data):
     trades = output['_trades']
     
-    data['SMA1'] = data['Close'].rolling(window=EnhancedStrategy.n1).mean()
-    data['SMA2'] = data['Close'].rolling(window=EnhancedStrategy.n2).mean()
+    data['SMA1'] = data['Close'].rolling(window=OptimizableStrategy.n1).mean()
+    data['SMA2'] = data['Close'].rolling(window=OptimizableStrategy.n2).mean()
     
     delta = data['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
@@ -106,14 +120,14 @@ def plot_backtest_results(output, data):
     
     data['BB Upper'], data['BB Middle'], data['BB Lower'] = BollingerBands(data['Close'], bb_period, bb_std_dev)
 
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
-                        subplot_titles=('Price and SMA', 'RSI', 'Bollinger Bands'),
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, 
+                        subplot_titles=('Price and SMA', 'RSI', 'Bollinger Bands', 'Equity Curve'),
                         vertical_spacing=0.1)
 
     # Plotting the close price and SMAs
     fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name='Close', line=dict(color='black')), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=data['SMA1'], name=f'SMA{EnhancedStrategy.n1}', line=dict(color='blue')), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=data['SMA2'], name=f'SMA{EnhancedStrategy.n2}', line=dict(color='red')), row=1, col=1)
+    fig.add_trace(go.Scatter(x=data.index, y=data['SMA1'], name=f'SMA{OptimizableStrategy.n1}', line=dict(color='blue')), row=1, col=1)
+    fig.add_trace(go.Scatter(x=data.index, y=data['SMA2'], name=f'SMA{OptimizableStrategy.n2}', line=dict(color='red')), row=1, col=1)
 
     # Plotting buy and sell signals
     buys = trades.loc[trades['Size'] > 0]
@@ -131,20 +145,25 @@ def plot_backtest_results(output, data):
     fig.add_trace(go.Scatter(x=data.index, y=data['BB Middle'], name='BB Middle', line=dict(color='black')), row=3, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=data['BB Lower'], name='BB Lower', line=dict(color='red')), row=3, col=1)
 
-    fig.update_layout(title='Backtest Results', showlegend=True, height=1000)
+    # Plotting Equity Curve
+    equity_curve = compute_equity_curve(output)
+    fig.add_trace(go.Scatter(x=trades['EntryTime'], y=equity_curve, name='Equity Curve', line=dict(color='purple')), row=4, col=1)
+
+    fig.update_layout(title='Backtest Results', showlegend=True, height=1200)
     fig.update_xaxes(title_text='Date')
     fig.update_yaxes(title_text='Price', row=1, col=1)
     fig.update_yaxes(title_text='RSI', row=2, col=1)
     fig.update_yaxes(title_text='Bollinger Bands', row=3, col=1)
+    fig.update_yaxes(title_text='Equity', row=4, col=1)
 
     return fig
 
 # Plot the backtest results
-fig = plot_backtest_results(output, data)
+fig = plot_backtest_results(stats, data)
 
 # Display results
 st.plotly_chart(fig, use_container_width=True)
-st.write(output)
+st.write(stats)
 
 # Calculate and display performance metrics
 def calculate_performance_metrics(output):
@@ -156,6 +175,6 @@ def calculate_performance_metrics(output):
     }
     return performance_metrics
 
-metrics = calculate_performance_metrics(output)
+metrics = calculate_performance_metrics(stats)
 st.write("Performance Metrics:")
 st.write(metrics)
