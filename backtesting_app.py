@@ -7,6 +7,7 @@ from backtesting.test import SMA
 import numpy as np
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
+import report_generator
 
 # Define Bollinger Bands as a standalone function
 def BollingerBands(series, period, std_dev):
@@ -59,16 +60,6 @@ long_window = st.sidebar.slider('Long Window', min_value=1, max_value=300, value
 rsi_period = st.sidebar.slider('RSI Period', min_value=1, max_value=50, value=14)
 bb_period = st.sidebar.slider('Bollinger Bands Period', min_value=1, max_value=50, value=20)
 bb_std_dev = st.sidebar.slider('Bollinger Bands Std Dev', min_value=1, max_value=5, value=2)
-
-# Display input parameters to ensure they are updating
-#st.write("Ticker:", ticker)
-#st.write("Start Date:", start_date)
-#st.write("End Date:", end_date)
-#st.write("Short Window:", short_window)
-#st.write("Long Window:", long_window)
-#st.write("RSI Period:", rsi_period)
-#st.write("Bollinger Bands Period:", bb_period)
-#st.write("Bollinger Bands Std Dev:", bb_std_dev)
 
 # Function to download data
 def get_data(ticker, start, end):
@@ -178,3 +169,9 @@ def calculate_performance_metrics(output):
 metrics = calculate_performance_metrics(stats)
 st.write("Performance Metrics:")
 st.write(metrics)
+
+# Generate and download report
+if st.button('Generate Report'):
+    report = report_generator.generate_report(stats, metrics, data, stats['_trades'])
+    buffer = report_generator.download_report(report)
+    st.download_button(label='Download Report', data=buffer, file_name='backtest_report.txt', mime='text/plain')
